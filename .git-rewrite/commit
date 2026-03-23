@@ -1,0 +1,17 @@
+tree e3dd43268f559a4f1f837b8f527c3ad1c4d572e5
+parent 681480d1ed80e1cf77fc152f965db2f0f5de3467
+author geravant <igor.gerasimov@jetbrains.com> 1773776649 +0100
+committer geravant <igor.gerasimov@jetbrains.com> 1773776649 +0100
+
+feat: escalation slot — inline context restore + sinain-memory migration
+
+- Replace minimal SITUATION.md trigger with buildEscalationMessage() inline
+  context (digest + OCR + audio sections force OpenClaw to engage with content)
+- Suppress [🧠] HUD pushes in rich mode (mirrors existing focus suppression)
+- Escalation slot refactor: EscalationSlot replaces outbound-queue, WS-only
+  two-phase delivery with backpressure
+- Migrate sinain-koog/ → sinain-hud-plugin/sinain-memory/ (co-locate memory
+  pipeline with the plugin it serves)
+- sinain-hud-plugin: package.json, install.js, updated plugin manifest
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
