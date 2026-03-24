@@ -5,6 +5,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/feed_item.dart';
 import '../../core/services/websocket_service.dart';
+import 'idle_animation.dart';
 
 class FeedView extends StatefulWidget {
   final FeedChannel channel;
@@ -22,14 +23,21 @@ class FeedView extends StatefulWidget {
 
 class _FeedViewState extends State<FeedView> {
   static const _maxItems = 50;
-  static const _scrollStep = 80.0;
+  static const _scrollStep = 200.0;
+  static const _selectionColor = Color(0xFF00E5FF);
   final List<FeedItem> _items = [];
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _listKey = GlobalKey();
+  final Map<int, GlobalKey> _itemKeys = {};
   StreamSubscription<FeedItem>? _feedSub;
   StreamSubscription<String>? _scrollSub;
   StreamSubscription<String>? _copySub;
   Timer? _fadeTimer;
   bool _autoScroll = true;
+
+  /// Index of the selected message, or null when in auto-scroll mode
+  /// (last message is implicitly selected).
+  int? _selectedIndex;
 
   @override
   void initState() {
@@ -50,10 +58,27 @@ class _FeedViewState extends State<FeedView> {
   }
 
   void _onFeedItem(FeedItem item) {
+    final trimCount = _items.length + 1 > _maxItems
+        ? _items.length + 1 - _maxItems
+        : 0;
+
     setState(() {
       _items.add(item);
-      if (_items.length > _maxItems) {
-        _items.removeRange(0, _items.length - _maxItems);
+      if (trimCount > 0) {
+        _items.removeRange(0, trimCount);
+        // Shift item keys and selection to track the same messages
+        final shifted = <int, GlobalKey>{};
+        for (final e in _itemKeys.entries) {
+          final ni = e.key - trimCount;
+          if (ni >= 0) shifted[ni] = e.value;
+        }
+        _itemKeys
+          ..clear()
+          ..addAll(shifted);
+        if (_selectedIndex != null) {
+          _selectedIndex = _selectedIndex! - trimCount;
+          if (_selectedIndex! < 0) _selectedIndex = null;
+        }
       }
     });
     if (_autoScroll) {
@@ -65,31 +90,70 @@ class _FeedViewState extends State<FeedView> {
   }
 
   void _onScrollCommand(String direction) {
-    if (!_scrollController.hasClients) return;
+    if (!_scrollController.hasClients || _items.isEmpty) return;
     final pos = _scrollController.position;
     switch (direction) {
       case 'up':
-        _autoScroll = false;
-        _scrollController.animateTo(
-          (pos.pixels - _scrollStep).clamp(0.0, pos.maxScrollExtent),
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-        );
+        setState(() => _autoScroll = false);
+        _scrollController
+            .animateTo(
+              (pos.pixels - _scrollStep).clamp(0.0, pos.maxScrollExtent),
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+            )
+            .then((_) => _updateSelectionFromScroll());
       case 'down':
-        final target = (pos.pixels + _scrollStep).clamp(0.0, pos.maxScrollExtent);
-        _scrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-        );
-        // Re-enable auto-scroll when reaching bottom
-        if (target >= pos.maxScrollExtent - 20) {
-          _autoScroll = true;
+        final target =
+            (pos.pixels + _scrollStep).clamp(0.0, pos.maxScrollExtent);
+        if (target >= pos.maxScrollExtent - 10) {
+          setState(() {
+            _selectedIndex = null;
+            _autoScroll = true;
+          });
         }
+        _scrollController
+            .animateTo(
+              target,
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+            )
+            .then((_) => _updateSelectionFromScroll());
       case 'bottom':
-        _autoScroll = true;
+        setState(() {
+          _selectedIndex = null;
+          _autoScroll = true;
+        });
         _scrollController.jumpTo(pos.maxScrollExtent);
     }
+  }
+
+  void _updateSelectionFromScroll() {
+    if (!mounted || _autoScroll || _items.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final listBox =
+          _listKey.currentContext?.findRenderObject() as RenderBox?;
+      if (listBox == null) return;
+      final listTop = listBox.localToGlobal(Offset.zero).dy;
+
+      int? bestIndex;
+      double bestPos = double.infinity;
+      for (final entry in _itemKeys.entries) {
+        final ctx = entry.value.currentContext;
+        if (ctx == null) continue;
+        final box = ctx.findRenderObject() as RenderBox?;
+        if (box == null || !box.hasSize) continue;
+        final itemTop = box.localToGlobal(Offset.zero).dy - listTop;
+        // Find the topmost item that is at least half visible
+        if (itemTop >= -box.size.height / 2 && itemTop < bestPos) {
+          bestPos = itemTop;
+          bestIndex = entry.key;
+        }
+      }
+      if (bestIndex != null && bestIndex != _selectedIndex) {
+        setState(() => _selectedIndex = bestIndex);
+      }
+    });
   }
 
   void _onCopyCommand(String activeTab) {
@@ -97,17 +161,9 @@ class _FeedViewState extends State<FeedView> {
     if (activeTab != widget.channel.name) return;
     if (_items.isEmpty) return;
 
-    String targetText;
-    if (_autoScroll || !_scrollController.hasClients) {
-      // Auto-scroll mode: copy the last (newest) message
-      targetText = _items.last.text;
-    } else {
-      // Manual scroll: estimate the topmost visible item from scroll offset
-      final offset = _scrollController.offset;
-      const estimatedItemHeight = 20.0;
-      final index = (offset / estimatedItemHeight).floor().clamp(0, _items.length - 1);
-      targetText = _items[index].text;
-    }
+    final targetText = _selectedIndex != null
+        ? _items[_selectedIndex!].text
+        : _items.last.text;
 
     Clipboard.setData(ClipboardData(text: targetText));
   }
@@ -128,7 +184,13 @@ class _FeedViewState extends State<FeedView> {
     }
     final countBefore = _items.length;
     _items.removeWhere((i) => i.opacity <= 0.15 && _items.length > 10);
-    if (_items.length != countBefore) changed = true;
+    if (_items.length != countBefore) {
+      // Adjust selection after fade removal
+      if (_selectedIndex != null && _selectedIndex! >= _items.length) {
+        _selectedIndex = _items.isNotEmpty ? _items.length - 1 : null;
+      }
+      changed = true;
+    }
     if (changed) setState(() {});
   }
 
@@ -156,29 +218,39 @@ class _FeedViewState extends State<FeedView> {
   @override
   Widget build(BuildContext context) {
     if (_items.isEmpty) {
-      return Center(
-        child: Text(
-          widget.emptyLabel,
-          style: TextStyle(
-            fontFamily: 'JetBrainsMono',
-            fontSize: 11,
-            color: Colors.white.withValues(alpha: 0.2),
-          ),
-        ),
-      );
+      return IdleAnimation(label: widget.emptyLabel);
     }
 
     return ListView.builder(
+      key: _listKey,
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       itemCount: _items.length,
       itemBuilder: (context, index) {
         final item = _items[index];
         final color = _priorityColor(item.priority);
+        final isSelected = index == _selectedIndex;
+        final itemKey =
+            _itemKeys.putIfAbsent(index, () => GlobalKey());
         return Opacity(
+          key: itemKey,
           opacity: item.opacity,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 1),
+          child: Container(
+            decoration: isSelected
+                ? BoxDecoration(
+                    border: Border(
+                      left: BorderSide(
+                        color: _selectionColor.withValues(alpha: 0.6),
+                        width: 2,
+                      ),
+                    ),
+                  )
+                : null,
+            padding: EdgeInsets.only(
+              left: isSelected ? 4 : 0,
+              top: 1,
+              bottom: 1,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -188,7 +260,9 @@ class _FeedViewState extends State<FeedView> {
                   style: TextStyle(
                     fontFamily: 'JetBrainsMono',
                     fontSize: 10,
-                    color: Colors.white.withValues(alpha: 0.25),
+                    color: isSelected
+                        ? _selectionColor.withValues(alpha: 0.5)
+                        : Colors.white.withValues(alpha: 0.25),
                   ),
                 ),
                 const SizedBox(width: 6),

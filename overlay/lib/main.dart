@@ -8,6 +8,9 @@ import 'core/services/websocket_service.dart';
 import 'core/services/window_service.dart';
 import 'ui/hud_shell.dart';
 
+/// Global key for HudShell so hotkey handler can trigger command input.
+final hudShellKey = GlobalKey<HudShellState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -38,8 +41,6 @@ void main() async {
         } else if (settingsService.settings.displayMode == DisplayMode.hidden) {
           await settingsService.setDisplayMode(DisplayMode.feed);
         }
-      case 'onToggleClickThrough':
-        await settingsService.toggleClickThrough();
       case 'onCycleMode':
         final modeName = call.arguments as String;
         final mode = DisplayMode.values.firstWhere(
@@ -51,8 +52,6 @@ void main() async {
         wsService.disconnect();
       case 'onToggleAudio':
         wsService.sendCommand('toggle_audio');
-      case 'onSwitchAudioDevice':
-        wsService.sendCommand('switch_device');
       case 'onToggleAudioFeed':
         wsService.toggleAudioFeed();
       case 'onScrollFeed':
@@ -70,6 +69,8 @@ void main() async {
         await settingsService.setTopPosition(top);
       case 'onToggleTraits':
         wsService.sendCommand('toggle_traits');
+      case 'onOpenCommandInput':
+        hudShellKey.currentState?.showCommandInput();
       case 'onTogglePrivacy':
         final privacyMode = call.arguments as bool;
         settingsService.setPrivacyModeTransient(privacyMode);
@@ -115,9 +116,9 @@ class SinainHudApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const Scaffold(
+      home: Scaffold(
         backgroundColor: Colors.transparent,
-        body: HudShell(),
+        body: HudShell(key: hudShellKey),
       ),
     );
   }

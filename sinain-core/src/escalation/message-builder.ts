@@ -1,4 +1,4 @@
-import type { ContextWindow, AgentEntry, EscalationMode, FeedbackRecord } from "../types.js";
+import type { ContextWindow, AgentEntry, EscalationMode, FeedbackRecord, UserCommand } from "../types.js";
 import { normalizeAppName } from "../agent/context-window.js";
 import { levelFor, applyLevel } from "../privacy/index.js";
 
@@ -85,15 +85,15 @@ Response should be actionable: working code with brief explanation.`;
   }
 
   if (coding) {
-    // General coding (IDE work, debugging) - offer assistance
-    return `The user is writing code. Be helpful and proactive:
+    return `The user is in a code editor. Be helpful and proactive. Do NOT respond with NO_REPLY — a response is always required.
 
 - If there's an error: investigate and suggest a fix with code
 - If they seem stuck: offer specific guidance or code snippets
-- If you see an opportunity to help: share relevant insights
+- If it's a non-code file (config, markdown, email): share a relevant insight, action item, or connection to their current project
+- If context is minimal: tell a short clever joke (tech humor — never repeat recent ones)
 
-Keep responses focused and include code when helpful.
-(5-10 sentences + code if applicable). Be thorough.`;
+NEVER just describe what the user is doing. Every response must teach, suggest, or connect dots.
+(2-5 sentences, or more + code if there's an error or code question).`;
   }
 
   // Non-coding context — proactive insights instead of activity descriptions
@@ -142,11 +142,17 @@ export function buildEscalationMessage(
   mode: EscalationMode,
   escalationReason?: string,
   recentFeedback?: FeedbackRecord[],
+  userCommand?: UserCommand,
 ): string {
   const sections: string[] = [];
 
   // Header with tick metadata
   sections.push(`[sinain-hud live context — tick #${entry.id}]`);
+
+  // User command — placed at the top so the agent sees it first
+  if (userCommand) {
+    sections.push(`## User Command\n> ${userCommand.text}\n\nThe user has explicitly asked you to address the above command. Prioritize it in your response.`);
+  }
 
   // Digest (always full)
   sections.push(`## Digest\n${digest}`);
@@ -290,6 +296,53 @@ the local analyzer reported idle/no-change. Provide a PROACTIVE response:
   sections.push("Respond naturally — this will appear on the user's HUD overlay.");
 
   return sections.join("\n\n");
+}
+
+/**
+ * Fetch relevant long-term knowledge facts for the current escalation context.
+ * Extracts entities from the context and queries the knowledge graph.
+ * Returns a formatted section or empty string if no relevant facts found.
+ */
+export async function fetchKnowledgeFacts(
+  context: ContextWindow,
+  digest: string,
+  queryFn?: (entities: string[], maxFacts: number) => Promise<string>,
+): Promise<string> {
+  if (!queryFn) return "";
+
+  // Extract entities from context: current app + error types + domain keywords
+  const entities: string[] = [];
+  const app = normalizeAppName(context.currentApp).toLowerCase().replace(/\s+/g, "-");
+  if (app && app.length > 2) entities.push(app);
+
+  // Extract error type keywords from digest
+  const errorPatterns = digest.matchAll(
+    /(?:Error|Exception|TypeError|SyntaxError|ReferenceError|HTTP\s*\d{3}|ENOENT|EACCES)/gi,
+  );
+  for (const m of errorPatterns) {
+    entities.push(m[0].toLowerCase());
+  }
+
+  // Extract technology keywords
+  const techKeywords = [
+    "react-native", "react", "flutter", "swift", "kotlin", "python",
+    "typescript", "node", "docker", "metro", "gradle", "cocoapods",
+    "intellij", "vscode", "xcode", "sinain",
+  ];
+  const lowerDigest = digest.toLowerCase();
+  for (const kw of techKeywords) {
+    if (lowerDigest.includes(kw)) entities.push(kw);
+  }
+
+  if (entities.length === 0) return "";
+
+  try {
+    const factsText = await queryFn(entities.slice(0, 5), 5);
+    if (factsText && factsText.trim().length > 20) {
+      return `## Past Experience\nBased on long-term knowledge relevant to this context:\n${factsText.trim()}`;
+    }
+  } catch {}
+  return "";
 }
 
 /**

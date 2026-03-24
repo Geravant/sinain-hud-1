@@ -128,16 +128,12 @@ class AppDelegate: FlutterAppDelegate {
         // Register hotkeys:
         // ID 1: Cmd+Shift+Space → toggle visibility
         registerHotKey(id: 1, keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey | shiftKey))
-        // ID 2: Cmd+Shift+C → toggle click-through
-        registerHotKey(id: 2, keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | shiftKey))
         // ID 3: Cmd+Shift+M → cycle display mode
         registerHotKey(id: 3, keyCode: UInt32(kVK_ANSI_M), modifiers: UInt32(cmdKey | shiftKey))
         // ID 4: Cmd+Shift+H → quit overlay
         registerHotKey(id: 4, keyCode: UInt32(kVK_ANSI_H), modifiers: UInt32(cmdKey | shiftKey))
         // ID 5: Cmd+Shift+T → toggle audio capture
         registerHotKey(id: 5, keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(cmdKey | shiftKey))
-        // ID 6: Cmd+Shift+D → switch audio device
-        registerHotKey(id: 6, keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(cmdKey | shiftKey))
         // ID 7: Cmd+Shift+A → toggle audio feed on HUD
         registerHotKey(id: 7, keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(cmdKey | shiftKey))
         // ID 8: Cmd+Shift+Up → scroll feed up
@@ -148,7 +144,7 @@ class AppDelegate: FlutterAppDelegate {
         registerHotKey(id: 10, keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | shiftKey))
         // ID 11: Cmd+Shift+V → toggle screen feed on HUD
         registerHotKey(id: 11, keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | shiftKey))
-        // ID 12: Cmd+Shift+E → cycle HUD tab (Stream / Agent)
+        // ID 12: Cmd+Shift+E → cycle HUD tab (Agent / Tasks)
         registerHotKey(id: 12, keyCode: UInt32(kVK_ANSI_E), modifiers: UInt32(cmdKey | shiftKey))
         // ID 13: Cmd+Shift+P → toggle position (bottom-right ↔ top-right)
         registerHotKey(id: 13, keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(cmdKey | shiftKey))
@@ -158,6 +154,8 @@ class AppDelegate: FlutterAppDelegate {
         registerHotKey(id: 15, keyCode: UInt32(kVK_ANSI_R), modifiers: UInt32(cmdKey | shiftKey))
         // ID 17: Cmd+Shift+B → toggle trait voices
         registerHotKey(id: 17, keyCode: UInt32(kVK_ANSI_B), modifiers: UInt32(cmdKey | shiftKey))
+        // ID 18: Cmd+Shift+/ → open command input
+        registerHotKey(id: 18, keyCode: UInt32(kVK_ANSI_Slash), modifiers: UInt32(cmdKey | shiftKey))
     }
 
     private func registerHotKey(id: UInt32, keyCode: UInt32, modifiers: UInt32) {
@@ -214,11 +212,6 @@ class AppDelegate: FlutterAppDelegate {
             }
             hotkeyChannel?.invokeMethod("onToggleVisibility", arguments: isVisible)
 
-        case 2: // Cmd+Shift+C → toggle click-through
-            isClickThrough.toggle()
-            window.ignoresMouseEvents = isClickThrough
-            hotkeyChannel?.invokeMethod("onToggleClickThrough", arguments: isClickThrough)
-
         case 3: // Cmd+Shift+M → cycle display mode
             currentModeIndex = (currentModeIndex + 1) % modeNames.count
             hotkeyChannel?.invokeMethod("onCycleMode", arguments: modeNames[currentModeIndex])
@@ -231,9 +224,6 @@ class AppDelegate: FlutterAppDelegate {
 
         case 5: // Cmd+Shift+T → toggle audio capture (routed to bridge via Flutter→WebSocket)
             hotkeyChannel?.invokeMethod("onToggleAudio", arguments: nil)
-
-        case 6: // Cmd+Shift+D → switch audio device
-            hotkeyChannel?.invokeMethod("onSwitchAudioDevice", arguments: nil)
 
         case 7: // Cmd+Shift+A → toggle audio feed on HUD
             hotkeyChannel?.invokeMethod("onToggleAudioFeed", arguments: nil)
@@ -250,7 +240,7 @@ class AppDelegate: FlutterAppDelegate {
         case 11: // Cmd+Shift+V → toggle screen feed on HUD
             hotkeyChannel?.invokeMethod("onToggleScreenFeed", arguments: nil)
 
-        case 12: // Cmd+Shift+E → cycle HUD tab (Stream / Agent)
+        case 12: // Cmd+Shift+E → cycle HUD tab (Agent / Tasks)
             hotkeyChannel?.invokeMethod("onCycleTab", arguments: nil)
 
         case 13: // Cmd+Shift+P → toggle position (bottom-right ↔ top-right)
@@ -279,6 +269,11 @@ class AppDelegate: FlutterAppDelegate {
         case 17: // Cmd+Shift+B → toggle trait voices
             hotkeyChannel?.invokeMethod("onToggleTraits", arguments: nil)
 
+        case 18: // Cmd+Shift+/ → open command input
+            // Disable click-through and make key window so TextField receives keyboard events
+            window.ignoresMouseEvents = false
+            window.makeKeyAndOrderFront(nil)
+            hotkeyChannel?.invokeMethod("onOpenCommandInput", arguments: nil)
 
         default:
             break

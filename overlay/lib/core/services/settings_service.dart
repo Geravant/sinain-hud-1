@@ -41,7 +41,7 @@ class SettingsService extends ChangeNotifier {
     final val = _prefs.getString(_keyActiveTab);
     return HudTab.values.firstWhere(
       (t) => t.name == val,
-      orElse: () => HudTab.stream,
+      orElse: () => HudTab.agent,
     );
   }
 
@@ -69,10 +69,6 @@ class SettingsService extends ChangeNotifier {
     _settings.clickThrough = value;
     await _prefs.setBool(_keyClickThrough, value);
     notifyListeners();
-  }
-
-  Future<void> toggleClickThrough() async {
-    await setClickThrough(!_settings.clickThrough);
   }
 
   Future<void> setPrivacyMode(bool value) async {

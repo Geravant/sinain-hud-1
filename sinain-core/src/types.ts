@@ -66,8 +66,27 @@ export interface ProfilingMessage {
   ts: number;
 }
 
+/** Overlay → sinain-core: user command to augment next escalation */
+export interface UserCommandMessage {
+  type: "user_command";
+  text: string;
+}
+
+/** Overlay → sinain-core: spawn a background agent task */
+export interface SpawnCommandMessage {
+  type: "spawn_command";
+  text: string;
+}
+
 export type OutboundMessage = FeedMessage | StatusMessage | PingMessage | SpawnTaskMessage;
-export type InboundMessage = UserMessage | CommandMessage | PongMessage | ProfilingMessage;
+export type InboundMessage = UserMessage | CommandMessage | PongMessage | ProfilingMessage | UserCommandMessage | SpawnCommandMessage;
+
+/** Abstraction for user commands (text now, voice later). */
+export interface UserCommand {
+  text: string;
+  ts: number;
+  source: "text" | "voice";
+}
 
 // ── Feed buffer types ──
 
@@ -204,6 +223,10 @@ export interface AgentConfig {
   model: string;
   visionModel: string;
   visionEnabled: boolean;
+  localVisionEnabled: boolean;
+  localVisionModel: string;
+  localVisionUrl: string;
+  localVisionTimeout: number;
   openrouterApiKey: string;
   maxTokens: number;
   temperature: number;
@@ -270,10 +293,13 @@ export interface ContextWindow {
 
 // ── Escalation types ──
 
+export type EscalationTransport = "ws" | "http" | "auto";
+
 export interface EscalationConfig {
   mode: EscalationMode;
   cooldownMs: number;
   staleMs: number;  // force escalation after this many ms of silence (0 = disabled)
+  transport: EscalationTransport;
 }
 
 export interface OpenClawConfig {
@@ -282,6 +308,9 @@ export interface OpenClawConfig {
   hookUrl: string;
   hookToken: string;
   sessionKey: string;
+  phase1TimeoutMs: number;   // default: 30_000
+  phase2TimeoutMs: number;   // default: 120_000
+  pingIntervalMs: number;    // default: 30_000
 }
 
 // ── Trace types ──
@@ -405,7 +434,6 @@ export interface PrivacyConfig {
 export interface CoreConfig {
   port: number;
   audioConfig: AudioPipelineConfig;
-  audioAltDevice: string;
   micConfig: AudioPipelineConfig;
   micEnabled: boolean;
   transcriptionConfig: TranscriptionConfig;

@@ -34,6 +34,14 @@ export interface ServerDeps {
   getTraces: (after: number, limit: number) => unknown[];
   reconnectGateway: () => void;
   feedbackStore?: FeedbackStore;
+  setUserCommand?: (text: string) => void;
+  getEscalationPending?: () => any;
+  respondEscalation?: (id: string, response: string) => any;
+  getKnowledgeDocPath?: () => string | null;
+  queryKnowledgeFacts?: (entities: string[], maxFacts: number) => Promise<string>;
+  onSpawnCommand?: (text: string) => void;
+  getSpawnPending?: () => { id: string; task: string; label: string; ts: number } | null;
+  respondSpawn?: (id: string, result: string) => { ok: boolean; error?: string };
 }
 
 function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
@@ -205,6 +213,43 @@ export function createAppServer(deps: ServerDeps) {
         return;
       }
 
+      // ── /knowledge ──
+      if (req.method === "GET" && url.pathname === "/knowledge") {
+        // Return portable knowledge document
+        const knowledgePath = deps.getKnowledgeDocPath?.();
+        if (knowledgePath) {
+          try {
+            const { readFileSync } = await import("node:fs");
+            const content = readFileSync(knowledgePath, "utf-8");
+            res.end(JSON.stringify({ ok: true, content }));
+          } catch {
+            res.end(JSON.stringify({ ok: true, content: "" }));
+          }
+        } else {
+          res.end(JSON.stringify({ ok: true, content: "" }));
+        }
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/knowledge/facts") {
+        // Query knowledge graph for entity-matched facts
+        const entitiesParam = url.searchParams.get("entities") || "";
+        const maxFacts = Math.min(parseInt(url.searchParams.get("max") || "5"), 20);
+        const entities = entitiesParam.split(",").map(e => e.trim()).filter(Boolean);
+
+        if (deps.queryKnowledgeFacts) {
+          try {
+            const facts = await deps.queryKnowledgeFacts(entities, maxFacts);
+            res.end(JSON.stringify({ ok: true, facts }));
+          } catch (err) {
+            res.end(JSON.stringify({ ok: true, facts: [], error: String(err) }));
+          }
+        } else {
+          res.end(JSON.stringify({ ok: true, facts: [] }));
+        }
+        return;
+      }
+
       // ── /traces ──
       if (req.method === "GET" && url.pathname === "/traces") {
         const after = parseInt(url.searchParams.get("after") || "0");
@@ -261,6 +306,80 @@ export function createAppServer(deps: ServerDeps) {
           overlayClients: wsHandler.clientCount,
           ...deps.getHealthPayload(),
         }));
+        return;
+      }
+
+      // ── /user/command ──
+      if (req.method === "POST" && url.pathname === "/user/command") {
+        const body = await readBody(req, 4096);
+        const { text } = JSON.parse(body);
+        if (!text) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: "missing text" }));
+          return;
+        }
+        deps.setUserCommand?.(text);
+        res.end(JSON.stringify({ ok: true, message: "Command queued for next escalation" }));
+        return;
+      }
+
+      // ── /escalation/pending ──
+      if (req.method === "GET" && url.pathname === "/escalation/pending") {
+        const pending = deps.getEscalationPending?.();
+        res.end(JSON.stringify({ ok: true, escalation: pending ?? null }));
+        return;
+      }
+
+      // ── /escalation/respond ──
+      if (req.method === "POST" && url.pathname === "/escalation/respond") {
+        const body = await readBody(req, 65536);
+        const { id, response } = JSON.parse(body);
+        if (!id || !response) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: "missing id or response" }));
+          return;
+        }
+        const result = deps.respondEscalation?.(id, response) ?? { ok: false, error: "escalation not configured" };
+        res.end(JSON.stringify(result));
+        return;
+      }
+
+      // ── /spawn ──
+      if (req.method === "POST" && url.pathname === "/spawn") {
+        const body = await readBody(req, 65536);
+        const { text, label } = JSON.parse(body);
+        if (!text) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: "missing text" }));
+          return;
+        }
+        if (deps.onSpawnCommand) {
+          deps.onSpawnCommand(text);
+          res.end(JSON.stringify({ ok: true, spawned: true }));
+        } else {
+          res.end(JSON.stringify({ ok: false, error: "spawn not configured" }));
+        }
+        return;
+      }
+
+      // ── /spawn/pending (bare agent polls for queued tasks) ──
+      if (req.method === "GET" && url.pathname === "/spawn/pending") {
+        const task = deps.getSpawnPending?.() ?? null;
+        res.end(JSON.stringify({ ok: true, task }));
+        return;
+      }
+
+      // ── /spawn/respond (bare agent returns task result) ──
+      if (req.method === "POST" && url.pathname === "/spawn/respond") {
+        const body = await readBody(req, 65536);
+        const { id, result } = JSON.parse(body);
+        if (!id || !result) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: "missing id or result" }));
+          return;
+        }
+        const resp = deps.respondSpawn?.(id, result) ?? { ok: false, error: "spawn not configured" };
+        res.end(JSON.stringify(resp));
         return;
       }
 

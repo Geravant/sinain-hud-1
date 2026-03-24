@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { loadConfig } from "./config.js";
 import { FeedBuffer } from "./buffers/feed-buffer.js";
 import { SenseBuffer } from "./buffers/sense-buffer.js";
@@ -78,6 +79,17 @@ async function main() {
     openclawConfig: config.openclawConfig,
     profiler,
     feedbackStore: feedbackStore ?? undefined,
+    queryKnowledgeFacts: async (entities: string[], maxFacts: number) => {
+      const workspace = process.env.SINAIN_WORKSPACE || `${process.env.HOME}/.openclaw/workspace`;
+      const dbPath = `${workspace}/memory/knowledge-graph.db`;
+      const scriptPath = `${workspace}/sinain-memory/graph_query.py`;
+      try {
+        const { execFileSync } = await import("node:child_process");
+        const args = [scriptPath, "--db", dbPath, "--max-facts", String(maxFacts), "--format", "text"];
+        if (entities.length > 0) args.push("--entities", JSON.stringify(entities));
+        return execFileSync("python3", args, { timeout: 5000, encoding: "utf-8" });
+      } catch { return ""; }
+    },
   });
 
   // ── Initialize agent loop (event-driven) ──
@@ -378,6 +390,41 @@ async function main() {
 
     getTraces: (after, limit) => tracer ? tracer.getTraces(after, limit) : [],
     reconnectGateway: () => escalator.reconnectGateway(),
+
+    // User command injection (bare agent / HTTP)
+    setUserCommand: (text: string) => escalator.setUserCommand(text),
+
+    // Bare agent HTTP escalation bridge
+    getEscalationPending: () => escalator.getPendingHttp(),
+    respondEscalation: (id: string, response: string) => escalator.respondHttp(id, response),
+
+    // Knowledge graph integration
+    getKnowledgeDocPath: () => {
+      const workspace = process.env.SINAIN_WORKSPACE || `${process.env.HOME}/.openclaw/workspace`;
+      const p = `${workspace}/memory/sinain-knowledge.md`;
+      try { if (existsSync(p)) return p; } catch {}
+      return null;
+    },
+    queryKnowledgeFacts: async (entities: string[], maxFacts: number) => {
+      const workspace = process.env.SINAIN_WORKSPACE || `${process.env.HOME}/.openclaw/workspace`;
+      const dbPath = `${workspace}/memory/knowledge-graph.db`;
+      const scriptPath = `${workspace}/sinain-memory/graph_query.py`;
+      try {
+        const { execFileSync } = await import("node:child_process");
+        const args = [scriptPath, "--db", dbPath, "--max-facts", String(maxFacts), "--format", "text"];
+        if (entities.length > 0) args.push("--entities", JSON.stringify(entities));
+        return execFileSync("python3", args, { timeout: 5000, encoding: "utf-8" });
+      } catch { return ""; }
+    },
+
+    // Spawn background agent task (from HUD Shift+Enter or bare agent POST /spawn)
+    onSpawnCommand: (text: string) => {
+      escalator.dispatchSpawnTask(text, "user-command").catch((err) => {
+        log("srv", `spawn via HTTP failed: ${err}`);
+      });
+    },
+    getSpawnPending: () => escalator.getSpawnPending(),
+    respondSpawn: (id: string, result: string) => escalator.respondSpawn(id, result),
   });
 
   // ── Wire overlay profiling ──
@@ -393,6 +440,15 @@ async function main() {
     config,
     onUserMessage: async (text) => {
       await escalator.sendDirect(text);
+    },
+    onUserCommand: (text) => {
+      escalator.setUserCommand(text);
+    },
+    onSpawnCommand: (text) => {
+      escalator.dispatchSpawnTask(text, "user-command").catch((err) => {
+        log("cmd", `spawn command failed: ${err}`);
+        wsHandler.broadcast(`\u26a0 Spawn failed: ${String(err).slice(0, 100)}`, "normal");
+      });
     },
     onToggleScreen: () => {
       screenActive = !screenActive;
