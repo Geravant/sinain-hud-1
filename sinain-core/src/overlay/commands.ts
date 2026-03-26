@@ -13,6 +13,10 @@ export interface CommandDeps {
   micPipeline: AudioPipeline | null;
   config: CoreConfig;
   onUserMessage: (text: string) => Promise<void>;
+  /** Queue a user command to augment the next escalation */
+  onUserCommand: (text: string) => void;
+  /** Spawn a background agent task */
+  onSpawnCommand?: (text: string) => void;
   /** Toggle screen capture — returns new state */
   onToggleScreen: () => boolean;
   /** Toggle trait voices — returns new enabled state */
@@ -37,6 +41,33 @@ export function setupCommands(deps: CommandDeps): void {
         }
         break;
       }
+      case "user_command": {
+        log(TAG, `user command received: "${msg.text.slice(0, 60)}"`);
+        // Echo user message to all overlay clients as a feed item
+        wsHandler.broadcastRaw({
+          type: "feed",
+          text: msg.text,
+          priority: "normal",
+          ts: Date.now(),
+          channel: "agent",
+          sender: "user",
+        } as any);
+        // Show thinking indicator
+        wsHandler.broadcastRaw({ type: "thinking", active: true } as any);
+        deps.onUserCommand(msg.text);
+        break;
+      }
+      case "spawn_command": {
+        const preview = msg.text.length > 60 ? msg.text.slice(0, 60) + "…" : msg.text;
+        log(TAG, `spawn command received: "${preview}"`);
+        if (deps.onSpawnCommand) {
+          deps.onSpawnCommand(msg.text);
+        } else {
+          log(TAG, `spawn command ignored — no handler configured`);
+          wsHandler.broadcast(`⚠ Spawn not available (no agent gateway connected)`, "normal");
+        }
+        break;
+      }
       case "command": {
         handleCommand(msg.action, deps);
         log(TAG, `command processed: ${msg.action}`);
@@ -47,7 +78,7 @@ export function setupCommands(deps: CommandDeps): void {
 }
 
 function handleCommand(action: string, deps: CommandDeps): void {
-  const { wsHandler, systemAudioPipeline, micPipeline, config } = deps;
+  const { wsHandler, systemAudioPipeline, micPipeline } = deps;
 
   switch (action) {
     case "toggle_audio": {
@@ -98,15 +129,6 @@ function handleCommand(action: string, deps: CommandDeps): void {
         "normal"
       );
       log(TAG, `screen toggled ${nowActive ? "ON" : "OFF"}`);
-      break;
-    }
-    case "switch_device": {
-      const current = systemAudioPipeline.getDevice();
-      const alt = config.audioAltDevice;
-      const next = current === config.audioConfig.device ? alt : config.audioConfig.device;
-      systemAudioPipeline.switchDevice(next);
-      wsHandler.broadcast(`Audio device \u2192 ${next}`, "normal");
-      log(TAG, `audio device switched: ${current} \u2192 ${next}`);
       break;
     }
     case "toggle_traits": {

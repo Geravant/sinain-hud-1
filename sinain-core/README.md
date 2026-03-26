@@ -1,6 +1,6 @@
 # sinain-core
 
-Unified HUD-sense-audio-bridge-relay: single process replacing relay + bridge.
+Central hub: audio pipeline, agent analysis loop, screen context, escalation orchestration.
 
 ## Architecture
 
@@ -8,9 +8,9 @@ Unified HUD-sense-audio-bridge-relay: single process replacing relay + bridge.
                         ┌─────────────────────────────────────────────┐
                         │              sinain-core  :9500             │
                         │                                             │
-   BlackHole 2ch        │  ┌────────┐    ┌────────────┐              │
+   sck-capture          │  ┌────────┐    ┌────────────┐              │
    ─────────────────────┼─▸│ Audio   │───▸│Transcription│             │
-   (sox / ffmpeg)       │  │Pipeline │    │ (Gemini)    │             │
+   (ScreenCaptureKit)   │  │Pipeline │    │ (Gemini)    │             │
                         │  └────────┘    └──────┬─────┘              │
                         │                       │                     │
                         │                       ▼                     │
@@ -50,9 +50,9 @@ Overlay WS clients receive real-time feed broadcasts and can send commands back.
 
 ### Prerequisites
 
+- **macOS 13+** (Ventura) — primary audio via ScreenCaptureKit (sck-capture, zero-setup)
 - **Node.js 22+**
-- **sox** — `brew install sox`
-- **BlackHole 2ch** — virtual audio device ([existential.audio](https://existential.audio/blackhole/))
+- *(Optional fallback)* **sox** (`brew install sox`) + **BlackHole 2ch** ([existential.audio](https://existential.audio/blackhole/)) — only needed if using `AUDIO_CAPTURE_CMD=sox`
 
 ### Install & Run
 
@@ -83,7 +83,7 @@ All configuration is via environment variables (or `.env` file). Variables are g
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUDIO_DEVICE` | `BlackHole 2ch` | macOS audio device name (sox `AUDIODEV`) |
+| `AUDIO_DEVICE` | `BlackHole 2ch` | macOS audio device name — only used by sox/ffmpeg fallback |
 | `AUDIO_SAMPLE_RATE` | `16000` | Sample rate in Hz |
 | `AUDIO_CHUNK_MS` | `5000` | Chunk duration in milliseconds |
 | `AUDIO_VAD_ENABLED` | `true` | Enable Voice Activity Detection |
@@ -91,7 +91,6 @@ All configuration is via environment variables (or `.env` file). Variables are g
 | `AUDIO_CAPTURE_CMD` | `sox` | Capture backend: `sox` or `ffmpeg` |
 | `AUDIO_AUTO_START` | `true` | Auto-start audio capture on boot |
 | `AUDIO_GAIN_DB` | `20` | Gain in decibels |
-| `AUDIO_ALT_DEVICE` | `BlackHole 2ch` | Alternate device for `switch_device` command |
 
 ### Transcription
 
@@ -337,7 +336,7 @@ The overlay WebSocket runs on the same port as HTTP.
 | Type | Fields | Description |
 |------|--------|-------------|
 | `message` | `text` | User message (forwarded to OpenClaw) |
-| `command` | `action` | Command: `toggle_audio`, `toggle_screen`, `switch_device` |
+| `command` | `action` | Command: `toggle_audio`, `toggle_screen` |
 | `pong` | `ts` | Heartbeat response |
 
 ### Heartbeat
@@ -373,7 +372,7 @@ sinain-core/src/
 │   └── openclaw-ws.ts        — WebSocket client to OpenClaw gateway
 ├── overlay/
 │   ├── ws-handler.ts         — overlay WS connections + replay
-│   └── commands.ts           — toggle_audio, toggle_screen, switch_device
+│   └── commands.ts           — toggle_audio, toggle_screen
 └── trace/
     ├── tracer.ts             — instrumentation + metrics
     └── trace-store.ts        — trace file persistence

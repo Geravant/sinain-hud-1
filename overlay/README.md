@@ -1,6 +1,6 @@
 # SinainHUD Overlay
 
-Ghost-like macOS overlay app. Dark, minimal, semi-transparent HUD that floats above all windows.
+Private macOS overlay app. Dark, minimal, semi-transparent HUD that floats above all windows.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ macos/Runner/
 
 ## Features
 
-- **Ghost overlay** — transparent, click-through, invisible to screen capture
+- **Invisible overlay** — transparent, click-through, invisible to screen capture
 - **4 display modes** — Feed (scrolling), Alert (urgent card), Minimal (ticker), Hidden
 - **Privacy mode** — `sharingType = .none` hides from screen recording
 - **Global hotkeys:**
@@ -45,7 +45,7 @@ macos/Runner/
   - `⌘⇧↓` — Scroll feed down
   - `⌘⇧S` — Toggle screen capture pipeline
   - `⌘⇧V` — Toggle screen feed on HUD
-  - `⌘⇧E` — Cycle HUD tab (Stream ↔ Agent)
+  - `⌘⇧E` — Cycle HUD tab (Agent ↔ Tasks)
   - `⌘⇧P` — Toggle position (bottom-right ↔ top-right)
   - `⌘⇧Y` — Copy target message to clipboard
 - **WebSocket bridge** — Connects to `ws://localhost:9500` with auto-reconnect

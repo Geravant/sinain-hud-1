@@ -1,0 +1,51 @@
+{
+  "name": "@geravant/sinain",
+  "version": "1.6.9",
+  "description": "Ambient intelligence that sees what you see, hears what you hear, and acts on your behalf",
+  "type": "module",
+  "bin": {
+    "sinain": "./cli.js",
+    "sinain-knowledge": "./sinain-knowledge/deploy/cli.ts"
+  },
+  "scripts": {
+    "prepack": "node pack-prepare.js pre",
+    "postpack": "node pack-prepare.js post",
+    "postinstall": "node cli.js install --if-openclaw"
+  },
+  "files": [
+    "cli.js",
+    "launcher.js",
+    "setup-overlay.js",
+    "setup-sck-capture.js",
+    "pack-prepare.js",
+    "install.js",
+    "index.ts",
+    "openclaw.plugin.json",
+    "sinain-memory",
+    "sinain-knowledge",
+    "sinain-core/src",
+    "sinain-core/package.json",
+    "sinain-core/package-lock.json",
+    "sinain-core/tsconfig.json",
+    ".env.example",
+    "sinain-mcp-server/index.ts",
+    "sinain-mcp-server/package.json",
+    "sinain-mcp-server/tsconfig.json",
+    "sinain-agent/run.sh",
+    "sinain-agent/mcp-config.json",
+    "sinain-agent/.env.example",
+    "sinain-agent/CLAUDE.md",
+    "sense_client",
+    "HEARTBEAT.md",
+    "SKILL.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "license": "MIT"
+}

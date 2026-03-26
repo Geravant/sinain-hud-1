@@ -2,10 +2,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
-import type { CoreConfig, AudioPipelineConfig, TranscriptionConfig, AgentConfig, EscalationConfig, OpenClawConfig, EscalationMode, LearningConfig, TraitConfig, PrivacyConfig, PrivacyMatrix, PrivacyLevel, PrivacyRow } from "./types.js";
+import type { CoreConfig, AudioPipelineConfig, TranscriptionConfig, AgentConfig, EscalationConfig, OpenClawConfig, EscalationMode, EscalationTransport, LearningConfig, TraitConfig, PrivacyConfig, PrivacyMatrix, PrivacyLevel, PrivacyRow } from "./types.js";
 import { PRESETS } from "./privacy/presets.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** The .env file path that was actually loaded (if any). */
+export let loadedEnvPath: string | undefined;
 
 function loadDotEnv(): void {
   // Try sinain-core/.env first, then project root .env
@@ -35,6 +38,7 @@ function loadDotEnv(): void {
           process.env[key] = val;
         }
       }
+      loadedEnvPath = envPath;
       console.log(`[config] loaded ${envPath}`);
       return;
     } catch { /* ignore */ }
@@ -61,6 +65,13 @@ function boolEnv(key: string, fallback: boolean): boolean {
   const v = process.env[key];
   if (!v) return fallback;
   return v === "true";
+}
+
+/** Like env() but treats a defined-but-empty value as "" instead of falling through to fallback. */
+function envAllowEmpty(key: string, fallbackKey?: string, defaultVal = ""): string {
+  if (process.env[key] !== undefined) return process.env[key]!;
+  if (fallbackKey && process.env[fallbackKey] !== undefined) return process.env[fallbackKey]!;
+  return defaultVal;
 }
 
 function resolvePath(p: string): string {
@@ -172,6 +183,10 @@ export function loadConfig(): CoreConfig {
     model: env("AGENT_MODEL", "google/gemini-2.5-flash-lite"),
     visionModel: env("AGENT_VISION_MODEL", "google/gemini-2.5-flash"),
     visionEnabled: boolEnv("AGENT_VISION_ENABLED", true),
+    localVisionEnabled: boolEnv("LOCAL_VISION_ENABLED", false),
+    localVisionModel: env("LOCAL_VISION_MODEL", "llava"),
+    localVisionUrl: env("LOCAL_VISION_URL", "http://localhost:11434"),
+    localVisionTimeout: intEnv("LOCAL_VISION_TIMEOUT", 10000),
     openrouterApiKey: env("OPENROUTER_API_KEY", ""),
     maxTokens: intEnv("AGENT_MAX_TOKENS", 800),
     temperature: floatEnv("AGENT_TEMPERATURE", 0.3),
@@ -190,14 +205,18 @@ export function loadConfig(): CoreConfig {
     mode: escalationMode,
     cooldownMs: intEnv("ESCALATION_COOLDOWN_MS", 30000),
     staleMs: intEnv("ESCALATION_STALE_MS", 90000),
+    transport: env("ESCALATION_TRANSPORT", "auto") as EscalationTransport,
   };
 
   const openclawConfig: OpenClawConfig = {
-    gatewayWsUrl: env("OPENCLAW_WS_URL", env("OPENCLAW_GATEWAY_WS_URL", "ws://localhost:18789")),
+    gatewayWsUrl: envAllowEmpty("OPENCLAW_WS_URL", "OPENCLAW_GATEWAY_WS_URL", "ws://localhost:18789"),
     gatewayToken: env("OPENCLAW_WS_TOKEN", env("OPENCLAW_GATEWAY_TOKEN", "")),
-    hookUrl: env("OPENCLAW_HTTP_URL", env("OPENCLAW_HOOK_URL", "http://localhost:18789/hooks/agent")),
+    hookUrl: envAllowEmpty("OPENCLAW_HTTP_URL", "OPENCLAW_HOOK_URL", "http://localhost:18789/hooks/agent"),
     hookToken: env("OPENCLAW_HTTP_TOKEN", env("OPENCLAW_HOOK_TOKEN", "")),
     sessionKey: env("OPENCLAW_SESSION_KEY", "agent:main:sinain"),
+    phase1TimeoutMs: intEnv("OPENCLAW_PHASE1_TIMEOUT_MS", 30_000),
+    phase2TimeoutMs: intEnv("OPENCLAW_PHASE2_TIMEOUT_MS", 120_000),
+    pingIntervalMs: intEnv("OPENCLAW_PING_INTERVAL_MS", 30_000),
   };
 
   const situationDir = env("OPENCLAW_WORKSPACE_DIR", "~/.openclaw/workspace");
@@ -224,7 +243,6 @@ export function loadConfig(): CoreConfig {
   return {
     port: intEnv("PORT", 9500),
     audioConfig,
-    audioAltDevice: env("AUDIO_ALT_DEVICE", "BlackHole 2ch"),
     micConfig,
     micEnabled,
     transcriptionConfig,

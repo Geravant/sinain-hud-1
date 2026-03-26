@@ -11,7 +11,7 @@ SinainHUD is a privacy-first AI overlay system for macOS. It captures screen and
 Three main processes communicate over localhost:
 
 - **sinain-core** (Node.js/TypeScript, port 9500) — Central hub. HTTP + WebSocket server, agent analysis loop, escalation orchestrator, ring buffers (feed: 100 items, sense: 30 events). ES modules (`"type": "module"`).
-- **overlay** (Flutter/Dart, macOS) — Ghost overlay UI. NSPanel with `sharingType = .none` (invisible to screen capture). 4 display modes: Feed, Alert, Ticker, Hidden. Connects via WebSocket to sinain-core.
+- **overlay** (Flutter/Dart, macOS) — Private overlay UI. NSPanel with `sharingType = .none` (invisible to screen capture). 4 display modes: Feed, Alert, Ticker, Hidden. Connects via WebSocket to sinain-core.
 - **sense_client** (Python) — Reads screen frames from sck-capture IPC (`~/.sinain/capture/frame.jpg`), SSIM change detection, OCR via OpenRouter vision API, privacy stripping. POSTs to sinain-core `/sense`.
 - **sck-capture** (Swift, `tools/sck-capture/`) — Unified ScreenCaptureKit binary. Single `SCStream` captures both system audio (raw PCM → stdout → sinain-core AudioPipeline) and screen frames (JPEG → IPC → sense_client). Replaces separate Python SCKCapture + old sck-audio.
 
@@ -32,14 +32,28 @@ npm run eval:quick             # Quick evaluation (1 run, stdout)
 npx tsc --noEmit               # Type-check only (used in CI)
 ```
 
-### overlay (from `overlay/`)
+### overlay
 ```bash
+# Pre-built (users — no Flutter needed):
+npx @geravant/sinain setup-overlay    # Downloads .app/.exe from GitHub Releases
+npx @geravant/sinain setup-overlay --update  # Force re-download
+
+# From source (developers, from overlay/):
 flutter pub get                # Install dependencies
-flutter run -d macos --debug   # Run in debug mode
-flutter build macos            # Production build
+flutter run -d macos --debug   # Run in debug mode (macOS)
+flutter run -d windows --debug # Run in debug mode (Windows)
+flutter build macos            # Production build (macOS)
+flutter build windows          # Production build (Windows)
 flutter analyze                # Dart static analysis
 flutter test                   # Run widget tests
+npx @geravant/sinain setup-overlay --from-source  # Clone + build
 ```
+
+### Windows overlay (`overlay/windows/runner/`)
+- `window_control_plugin.cpp` — Platform channel `sinain_hud/window` (mirrors Swift WindowControlPlugin)
+- `hotkey_handler.cpp` — Platform channel `sinain_hud/hotkeys` (mirrors Swift AppDelegate hotkeys)
+- Private overlay via `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` — Windows 10 2004+
+- Hotkeys use `Ctrl+Shift` (not `Cmd+Shift`)
 
 ### sense_client (from project root)
 ```bash
@@ -55,9 +69,12 @@ python -m sense_client         # Run screen capture pipeline
 
 ## CI Pipeline (`.github/workflows/ci.yml`)
 
-Two jobs:
+CI (`ci.yml`) — two jobs:
 1. **sinain-core-typecheck** — Node 22, `npm ci` + `npx tsc --noEmit`
 2. **overlay-analyze** — Flutter 3.27.x, `flutter pub get` + `flutter analyze` + `flutter test`
+
+Release (`release-overlay.yml`) — triggered by `overlay-v*` tags:
+- Builds Flutter macOS release on `macos-latest`, zips with `ditto`, uploads to GitHub Releases
 
 ## Key Source Locations
 
@@ -80,7 +97,7 @@ Two jobs:
 - `core/services/websocket_service.dart` — WebSocket bridge with auto-reconnect
 - `core/services/window_service.dart` — Platform channel to Swift native code
 - `ui/hud_shell.dart` — Main shell, mode switching
-- `macos/Runner/MainFlutterWindow.swift` — NSPanel subclass (ghost window)
+- `macos/Runner/MainFlutterWindow.swift` — NSPanel subclass (private overlay window)
 - `macos/Runner/AppDelegate.swift` — Global hotkeys, window config
 
 ### sense_client (`sense_client/`)
@@ -98,9 +115,9 @@ All config via environment variables or `.env` file. Key vars:
 - `AGENT_VISION_MODEL` — Vision model (default: `google/gemini-2.5-flash`)
 - `ESCALATION_MODE` — `off | selective | focus | rich` (default: `rich`)
 - `OPENCLAW_WS_URL` / `OPENCLAW_HTTP_URL` — OpenClaw gateway endpoints
-- `AUDIO_DEVICE` — macOS audio device (default: `BlackHole 2ch`)
+- `AUDIO_DEVICE` — macOS audio device for sox/ffmpeg fallback (default: `BlackHole 2ch`)
 
-See `sinain-core/.env.example` for the complete list.
+See `.env.example` for the complete list.
 
 ## Architectural Patterns
 
